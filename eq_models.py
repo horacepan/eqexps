@@ -3,25 +3,19 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from models import MLP
-from equivariant_layers import ops_2_to_1, ops_1_to_2, ops_1_to_1, ops_2_to_2, set_ops_3_to_3, set_ops_4_to_4
 from equivariant_layers_expand import eops_1_to_1, eops_1_to_2, eops_2_to_1, eops_2_to_2, eset_ops_3_to_3, eset_ops_4_to_4, eset_ops_1_to_3
 
 class Eq1to1(nn.Module):
-    def __init__(self, in_dim, out_dim, ops_func=None):
+    def __init__(self, in_dim, out_dim):
         super(Eq1to1, self).__init__()
         self.basis_dim = 2
         self.out_dim = out_dim
         self.in_dim = in_dim
         self.coefs = nn.Parameter(torch.normal(0, np.sqrt(2. / (in_dim + out_dim + self.basis_dim)), (in_dim, out_dim, self.basis_dim)))
         self.bias = nn.Parameter(torch.zeros(1, out_dim, 1))
-        if ops_func is None:
-            self.ops_func = ops_1_to_1
-        else:
-            self.ops_func = ops_func
 
     def forward(self, inputs):
-        ops = self.ops_func(inputs)
+        ops = eops_1_to_1(inputs)
         output = torch.einsum('dsb, nibd->nis', self.coefs, ops)
         output = output + self.bias
         return output
@@ -62,7 +56,7 @@ class Eq1to2(nn.Module):
         return output
 
 class Eq2to2(nn.Module):
-    def __init__(self, in_dim, out_dim, ops_func=eops_2_to_2):
+    def __init__(self, in_dim, out_dim):
         super(Eq2to2, self).__init__()
         self.basis_dim = 15
         self.out_dim = out_dim
@@ -71,15 +65,10 @@ class Eq2to2(nn.Module):
         self.bias = nn.Parameter(torch.zeros(1, out_dim, 1, 1))
         self.diag_bias = nn.Parameter(torch.zeros(1, out_dim, 1, 1))
         self.diag_eyes = {}
-
         self.diag_eye = None #torch.eye(n).unsqueeze(0).unsqueeze(0).to(device)
-        if ops_func is None:
-            self.ops_func = ops_2_to_2
-        else:
-            self.ops_func = ops_func
 
     def forward(self, inputs):
-        ops = self.ops_func(inputs)
+        ops = eops_2_to_2(inputs)
         output = torch.einsum('dsb,ndbij->nsij', self.coefs, ops)
 
         n = output.shape[-1]
@@ -113,49 +102,8 @@ class Eq1to2Net(nn.Module):
         output = self.fc_out(output)
         return output
 
-class Net1to1(nn.Module):
-    def __init__(self, layers, out_dim, out_model='linear', ops_func=None):
-        super(Net1to1, self).__init__()
-        self.layers = nn.ModuleList([Eq1to1(din, dout, ops_func) for din, dout in layers])
-        if out_model == 'linear':
-            self.out_net = nn.Linear(layers[-1][-1], out_dim)
-        else:
-            self.out_net = MLP(layers[-1][-1], out_dim)
-
-    def forward(self, x):
-        for layer in self.layers:
-            x = F.relu(layer(x))
-        x = x.permute(0, 2, 1)
-        output = self.out_net(x)
-        return output
-
-class Net2to2(nn.Module):
-    def __init__(self, layers, out_dim, out_model='Linear', ops_func=None, **kwargs):
-        '''
-        layers: list of tuples (dim_in, dim_out)
-        out_dim: output dimension
-        n: size of input n \times n  tensor
-        '''
-        super(Net2to2, self).__init__()
-        self.layers = nn.ModuleList([Eq2to2(din, dout, ops_func) for din, dout in layers])
-        if out_model == 'Linear':
-            self.out_net = nn.Linear(layers[-1][-1], out_dim)
-        elif out_model=='MLP':
-            self.out_net = MLP(layers[-1][0], kwargs['mlp_hid_dim'], out_dim)
-
-    def forward(self, x):
-        '''
-        x: N x d x m x m
-        Returns: N x m x m x out_dim
-        '''
-        for layer in self.layers:
-            x = F.relu(layer(x))
-        x = x.permute(0, 2, 3, 1)
-        output = self.out_net(x)
-        return output
-
 class Eq1to3(nn.Module):
-    def __init__(self, in_dim, out_dim, ops_func=None):
+    def __init__(self, in_dim, out_dim):
         super(Eq1to3, self).__init__()
         self.basis_dim = 4
         self.in_dim = in_dim
@@ -163,21 +111,15 @@ class Eq1to3(nn.Module):
         self.coefs = nn.Parameter(torch.normal(0, np.sqrt(2.0 / (in_dim + out_dim + self.basis_dim)),
                                   (in_dim, out_dim, self.basis_dim)))
         self.bias = nn.Parameter(torch.zeros(1, out_dim, 1, 1, 1))
-        if ops_func is None:
-            self.ops_func = eset_ops_1_to_3
-        else:
-            self.ops_func = ops_func
 
     def forward(self, x):
-        ops = self.ops_func(x)
+        ops = eset_ops_1_to_3(x)
         output = torch.einsum('dsb,ndbijk->nsijk', self.coefs, ops) # in/out/basis, batch/in/basis/ijk
         output = output + self.bias
         return output
 
-
-
 class SetEq3to3(nn.Module):
-    def __init__(self, in_dim, out_dim, ops_func=None):
+    def __init__(self, in_dim, out_dim):
         super(SetEq3to3, self).__init__()
         self.basis_dim = 19
         self.in_dim = in_dim
@@ -185,19 +127,15 @@ class SetEq3to3(nn.Module):
         self.coefs = nn.Parameter(torch.normal(0, np.sqrt(2.0 / (in_dim + out_dim + self.basis_dim)),
                                   (in_dim, out_dim, self.basis_dim)))
         self.bias = nn.Parameter(torch.zeros(1, out_dim, 1, 1, 1))
-        if ops_func is None:
-            self.ops_func = set_ops_3_to_3
-        else:
-            self.ops_func = ops_func
 
     def forward(self, x):
-        ops = self.ops_func(x)
+        ops = eset_ops_3_to_3(x)
         output = torch.einsum('dsb,ndbijk->nsijk', self.coefs, ops) # in/out/basis, batch/in/basis/ijk
         output = output + self.bias
         return output
 
 class SetEq4to4(nn.Module):
-    def __init__(self, in_dim, out_dim, ops_func):
+    def __init__(self, in_dim, out_dim):
         super(SetEq4to4, self).__init__()
         self.basis_dim = 69
         self.in_dim = in_dim
@@ -205,55 +143,11 @@ class SetEq4to4(nn.Module):
         self.coefs = nn.Parameter(torch.normal(0, np.sqrt(2.0 / (in_dim + out_dim + self.basis_dim)),
                                   (in_dim, out_dim, self.basis_dim)))
         self.bias = nn.Parameter(torch.zeros(1, out_dim, 1, 1, 1, 1))
-        if ops_func is None:
-            self.ops_func = set_ops_4_to_4
-        else:
-            self.ops_func = ops_func
 
     def forward(self, x):
-        ops = self.ops_func(x)
+        ops = eset_ops_4_to_4(x)
         output = torch.einsum('dsb,ndbijkl->nsijkl', self.coefs, ops) # in/out/basis, batch/in/basis/ijk
         output = output + self.bias
-        return output
-
-class SetNet3to3(nn.Module):
-    def __init__(self, layers, out_dim, out_model='Linear', ops_func=None):
-        super(SetNet3to3, self).__init__()
-        self.layers = nn.ModuleList([SetEq3to3(din, dout, ops_func) for din, dout in layers])
-        if out_model == 'Linear':
-            self.out_net = nn.Linear(layers[-1][1], out_dim)
-        else:
-            self.out_net = MLP(layers[-1][1], out_dim)
-
-    def forward(self, x):
-        '''
-        x: tensor of size Batch x feature x n x n x n
-        Return: tensor of size Batch x n x n x n
-        '''
-        for layer in self.layers:
-            x = F.relu(layer(x))
-        x = x.permute(0, 2, 3, 4, 1)
-        output = self.out_net(x)
-        return output
-
-class SetNet4to4(nn.Module):
-    def __init__(self, layers, out_dim, out_model='Linear', ops_func=None):
-        super(SetNet4to4, self).__init__()
-        self.layers = nn.ModuleList([SetEq4to4(din, dout, ops_func) for din, dout in layers])
-        if out_model == 'Linear':
-            self.out_net = nn.Linear(layers[-1][1], out_dim)
-        else:
-            self.out_net = MLP(layers[-1][1], out_dim)
-
-    def forward(self, x):
-        '''
-        x: tensor of size Batch x feature x n x n x n
-        Return: tensor of size Batch x n x n x n
-        '''
-        for layer in self.layers:
-            x = F.relu(layer(x))
-        x = x.permute(0, 2, 3, 4, 5, 1)
-        output = self.out_net(x)
         return output
 
 if __name__ == '__main__':
