@@ -16,8 +16,8 @@ class PokerDataset(Dataset):
         row = self.data.iloc[idx]
         suits = torch.LongTensor([row[i] for i in range(0, 10, 2)]) - 1
         nums = torch.LongTensor([row[i] for i in range(1, 10, 2)]) - 1
-        #tgt = int(row[10] == 0) if self.mode == 'binary' else row[10]
-        tgt = row[10]
+        tgt = int(row[10] == 0) if self.mode == 'binary' else row[10]
+        #tgt = row[10]
         return suits, nums, tgt
 
     def __len__(self):
