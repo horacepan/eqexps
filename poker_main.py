@@ -43,13 +43,10 @@ class PokerNet(nn.Module):
         return x
 
 class Poker2Net(nn.Module):
-    def __init__(self, embed_dim, hid_dim, out_dim):
-        super(PokerNet, self).__init__()
-        self.suit_enc = nn.Embedding(4, embed_dim)
-        self.num_enc = nn.Embedding(13, embed_dim)
-        self.mix = nn.Linear(2*embed_dim, hid_dim)
+    def __init__(self, hid_dim, out_dim):
+        super(Poker2Net, self).__init__()
         self.enc = nn.Sequential(
-            nn.Linear(hid_dim, hid_dim),
+            nn.Linear(2, hid_dim),
             nn.ReLU(),
             nn.Linear(hid_dim, hid_dim),
             nn.ReLU(),
@@ -63,28 +60,84 @@ class Poker2Net(nn.Module):
             nn.ReLU(),
             nn.Linear(hid_dim, out_dim),
         )
+        #self.dec = nn.Sequential(
+        #    nn.ReLU(),
+        #    nn.Linear(hid_dim, out_dim)
+        #)
 
     def forward(self, suits, nums):
-        s = self.suit_enc(suits)
-        n = self.num_enc(nums)
-        x = torch.cat([s, n], dim=2)
-        x = self.mix(x)
+        x = torch.stack([suits, nums], dim=-1).float()
+        x = self.enc(x)
         x = x.sum(dim=1)
         x = self.dec(x)
         return x
 
-def main(args):
-    log = get_logger()
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    dataset = PokerDataset(args.data_fn)
-    train_len = int(len(dataset) * args.train_pct)
-    train_data, test_data = torch.utils.data.random_split(dataset,
-                                                          (train_len, len(dataset) - train_len),
-                                                          torch.Generator().manual_seed(args.seed))
+class PokerEq2Net(nn.Module):
+    def __init__(self, hid_dim, out_dim, nlayers):
+        super(PokerEq2Net, self).__init__()
+        self.enc = nn.Sequential(
+            nn.Linear(2, hid_dim),
+            nn.ReLU(),
+            nn.Linear(hid_dim, hid_dim),
+            nn.ReLU(),
+            nn.Linear(hid_dim, hid_dim),
+        )
 
-    train_loader = DataLoader(train_data, batch_size=args.batch_size)
-    test_loader = DataLoader(test_data, batch_size=args.batch_size)
-    model = PokerNet(args.embed_dim, args.hid_dim, dataset.num_classes).to(device)
+        self.eq = nn.Sequential(
+            Eq2to2(hid_dim, hid_dim),
+            nn.ReLU(),
+            Eq2to2(hid_dim, hid_dim),
+            nn.ReLU()
+        )
+
+        self.dec = nn.Sequential(
+            nn.Linear(hid_dim, hid_dim),
+            nn.ReLU(),
+            nn.Linear(hid_dim, hid_dim),
+            nn.ReLU(),
+            nn.Linear(hid_dim, out_dim),
+        )
+        #self.dec = nn.Sequential(
+        #    nn.ReLU(),
+        #    nn.Linear(hid_dim, out_dim)
+        #)
+
+    def forward(self, suits, nums):
+        x = torch.stack([suits, nums], dim=-1).float()
+        x = self.enc(x)
+        x = torch.einsum('bid,bjd->bijd', x, x)
+        x = x.permute(0, 3, 1, 2)
+        x = self.eq(x)
+        x = x.permute(0, 2, 3, 1)
+        x = x.sum(dim=(1, 2))
+        x = self.dec(x)
+        return x
+
+
+def main(args):
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    log = get_logger()
+    log.info('Loading data')
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+    if args.all_test:
+        nsample=None # None to use all of it
+    else:
+        nsample = 50000 # 2x train data size
+    train_data = PokerDataset(args.train_data_fn, mode=args.mode)
+    test_data = PokerDataset(args.test_data_fn, nsample=nsample, mode=args.mode)
+    log.info('Done loading data | Train size: {} | Test size: {}'.format(len(train_data), len(test_data)))
+    train_loader = DataLoader(train_data, batch_size=args.batch_size, shuffle=True)
+    test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=True, pin_memory=True, num_workers=2)
+
+    if args.model == 'PokerNet':
+        model = PokerNet(args.embed_dim, args.hid_dim, train_data.num_classes).to(device)
+    elif args.model == 'PokerEq2Net':
+        model = PokerEq2Net(args.embed_dim, args.hid_dim, train_data.num_classes).to(device)
+    else:
+        model = Poker2Net(args.hid_dim, train_data.num_classes).to(device)
+    log.info('Model: {}'.format(model.__class__))
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     criterion = nn.CrossEntropyLoss()
     log.info('Starting')
@@ -108,20 +161,28 @@ def main(args):
             correct += ncorrect(ypred, target)
 
         train_acc = correct / len(train_data)
-        test_acc = _validate_model(test_loader, model, device)
-        log.info('Epoch {:4d} | Train loss: {:.2f} | Acc: {:.2f} | Test loss: {:.2f}'.format(e, np.mean(losses), train_acc,  test_acc))
+        if e % args.test_iter == 0:
+            test_acc, tcorrect = _validate_model(test_loader, model, device)
+            log.info('Epoch {:4d} | Train acc: {:.2f} | Test acc: {:.2f}'.format(e, train_acc, test_acc))
+        else:
+            log.info('Epoch {:4d} | Train acc: {:.2f}'.format(e, train_acc, correct,  test_acc, tcorrect))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', type=int, default=0)
-    parser.add_argument('--data_fn', type=str, default= './data/poker/poker-hand-training-true.data')
-    parser.add_argument('--train_pct', type=float, default=0.8)
+    parser.add_argument('--model', type=str, default= 'PokerNet')
+    parser.add_argument('--train_data_fn', type=str, default= './data/poker/poker-hand-training-true.data')
+    parser.add_argument('--test_data_fn', type=str, default= './data/poker/poker-hand-testing.data')
+    parser.add_argument('--test_iter', type=int, default=10)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--hid_dim', type=int, default=32)
-    parser.add_argument('--embed_dim', type=int, default=32)
+    parser.add_argument('--nlayers', type=int, default=2)
+    parser.add_argument('--embed_dim', type=int, default=16)
     parser.add_argument('--batch_size', type=int, default=256)
+    parser.add_argument('--mode', type=str, default='binary')
     parser.add_argument('--cuda', action='store_true', default=False)
+    parser.add_argument('--all_test', action='store_true', default=False)
 
     args = parser.parse_args()
     main(args)

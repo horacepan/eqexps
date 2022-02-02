@@ -57,7 +57,7 @@ def _validate_model(dataloader, model, device):
     tot_correct = 0
     tot = 0
     with torch.no_grad():
-        for batch in dataloader:
+        for batch in tqdm(dataloader):
             d1 = batch[0].to(device)
             d2 = batch[1].to(device)
             target = batch[2].to(device)
@@ -66,7 +66,7 @@ def _validate_model(dataloader, model, device):
             tot += len(batch[2])
 
     acc = tot_correct / tot
-    return acc
+    return acc, tot_correct
 
 def load_csl_data(fn):
     graphs = pickle.load(open(fn, 'rb'))
