@@ -4,9 +4,11 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 
 class PokerDataset(Dataset):
-    def __init__(self, fn, nsample=None, mode='binary'):
+    def __init__(self, fn, nsample=None, mode='binary', exclude_zero=True):
         self.mode = mode
         self.data = pd.read_csv(fn, header=None)
+        if exclude_zero and mode == 'multi':
+            self.data = self.data[self.data[10] > 0]
         if nsample:
             self.data = self.data.sample(n=nsample)
         self._suit_feats = torch.eye(4)

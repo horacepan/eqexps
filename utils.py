@@ -138,7 +138,7 @@ def _validate_model(dataloader, model, device):
     tot_correct = 0
     tot = 0
     with torch.no_grad():
-        for batch in tqdm(dataloader):
+        for batch in (dataloader):
             d1 = batch[0].to(device)
             d2 = batch[1].to(device)
             target = batch[2].to(device)
