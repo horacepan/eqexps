@@ -6,39 +6,22 @@ import time
 import functools
 import pathlib
 import shutil
+from tqdm import tqdm
+import argparse
 
 import awkward
 import uproot_methods
-
 import numpy as np
 import pandas as pd
-
-import argparse
 import torch
 import torch.nn as nn
 import torch_geometric
-from tqdm import tqdm
-
-import os
-import psutil
+from jet_utils import check_memory, nparams
 
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(message)s')
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 PROJECT_DIR = './'
 
-def nparams(model):
-    tot = 0
-    for p in model.parameters():
-        tot += p.numel()
-    return tot
-
-def check_memory(verbose=True):
-    # return the memory usage in MB
-    process = psutil.Process(os.getpid())
-    mem = process.memory_info()[0] / float(2 ** 20)
-    if verbose:
-        print("Consumed {:.2f}mb memory".format(mem))
-    return mem
 '''
 Downloading the Dataset
 '''
