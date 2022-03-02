@@ -1,0 +1,8 @@
+python smallnet.py --model SmallEq2Net --nhid 32 --neqhid 8 --batch_size 512 --lr 0.001
+0.929, epoch 15
+
+python smallnet.py --model SmallEq2NetMini --nhid 32 --neqhid 12 --batch_size 512 --lr 0.0005
+0.925, epoch 15
+
+python smallnet.py  --model MiniEq2Net --nhid 16 --ndechid 256 --lr 0.0004 --batch_size 256
+0.921

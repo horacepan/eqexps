@@ -16,7 +16,7 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch_geometric
-from jet_utils import check_memory, nparams
+from jet_utils import check_memory, nparams, validate_model
 
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(message)s')
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -336,21 +336,6 @@ def process_data():
     convert('original/val.h5', destdir='converted', basename='train_file')
     convert('original/test.h5', destdir='converted', basename='test_file')
 
-def validate_model(model, loader):
-    ncorr = 0
-    total = 0
-
-    with torch.no_grad():
-        for batch in tqdm(loader):
-            batch = batch.to(DEVICE)
-            ypred = model.forward(batch)
-            # get acc of the model
-            y = torch.LongTensor(batch.y).to(DEVICE)
-            ncorr += (ypred.max(dim=1)[1] == y).sum()
-            total += len(batch.y)
-
-    return ncorr, total
-
 def make_model(settings):
     logging.info("Starting make model")
     model = ParticleNet(settings)
@@ -413,7 +398,7 @@ def main():
             opt.step()
 
         # do the validation
-        val_corr, val_total = validate_model(model, val_dataloader)
+        val_corr, val_total = validate_model(model, val_dataloader, DEVICE)
         log.info("Epoch: {:2d} | Val acc: {:.3f}".format(e, val_corr/val_total))
 
 if __name__ == '__main__':

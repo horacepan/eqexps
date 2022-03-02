@@ -30,4 +30,19 @@ def tensor_validate_model(model, loader, device='cpu'):
 
     return ncorr, total
 
+def validate_model(model, loader, device='cpu'):
+    ncorr = 0
+    total = 0
+
+    with torch.no_grad():
+        for batch in tqdm(loader):
+            batch = batch.to(device)
+            ypred = model.forward(batch)
+            # get acc of the model
+            y = torch.LongTensor(batch.y).to(device)
+            ncorr += (ypred.max(dim=1)[1] == y).sum()
+            total += len(batch.y)
+
+    return ncorr, total
+
 

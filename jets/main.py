@@ -30,6 +30,7 @@ def load_tensor_data(xfn, yfn, loader_kwargs):
     ds = torch.utils.data.TensorDataset(xs, ys)
     dataloader = torch.utils.data.DataLoader(ds, **loader_kwargs)
     return dataloader
+
 def load_small_tensor_loaders(loader_kwargs):
     pass
 
@@ -67,7 +68,10 @@ def main(args):
 
     logging.info("Starting to load dataloaders")
     loader_kwargs = {'batch_size': args.batch_size, 'shuffle': True, 'num_workers': args.num_workers}
-    train_dataloader, val_dataloader, test_dataloader = load_tensor_loaders(loader_kwargs)
+    if args.model == 'SmallSetNet':
+        train_dataloader, val_dataloader, test_dataloader = load_graph_loaders(loader_kwargs)
+    else:
+        train_dataloader, val_dataloader, test_dataloader = load_tensor_loaders(loader_kwargs)
     logging.info("Done loading dataloaders")
     logging.info("Memory usage: {:.2f}mb".format(check_memory(False)))
     #logging.info("Starting to load big data ...")
@@ -96,6 +100,10 @@ def main(args):
         model = MediumEq2Net(nin=4, nenchid=args.nenchid, nhid=args.nhid, ndechid=args.ndechid, nout=2)
     elif args.model == 'SmallEq2NetMini':
         model = SmallEq2NetMini(nin=4, nhid=args.nhid, neqhid=args.neqhid, ndechid=args.ndechid, nout=2)
+    elif args.model == 'TensorNet':
+        model = TensorNet(nin=4, nhid=args.nhid, ndechid=args.ndechid, nout=2)
+    elif args.model == 'TensorMLPNet':
+        model = TensorMLPNet(nin=4, nhid=args.nhid, ndechid=args.ndechid, nout=2)
 
     #scaler = torch.cuda.amp.GradScaler()
     model = model.to(DEVICE)
@@ -108,14 +116,15 @@ def main(args):
     for e in range(100):
         for batch in tqdm(train_dataloader):
             opt.zero_grad()
-            #if args.model == 'SmallSetNet':
-            #    ypred = model.forward(batch, DEVICE)
-            #    loss = criterion(ypred, torch.LongTensor(batch.y).to(DEVICE))
-            #else:
-            bx, by = batch
-            bx, by = bx.to(DEVICE), by.to(DEVICE)
-            ypred = model.forward(bx)
-            loss = criterion(ypred, by)
+            if args.model == 'SmallSetNet':
+                batch = batch.to(DEVICE)
+                ypred = model.forward(batch)
+                loss = criterion(ypred, torch.LongTensor(batch.y).to(DEVICE))
+            else:
+                bx, by = batch
+                bx, by = bx.to(DEVICE), by.to(DEVICE)
+                ypred = model.forward(bx)
+                loss = criterion(ypred, by)
 
             loss.backward()
             opt.step()
@@ -125,11 +134,18 @@ def main(args):
 
         # do the validation
         if e % args.val_check == 0:
-            val_corr, val_total = tensor_validate_model(model, val_dataloader, DEVICE)
+            if args.model == 'SmallSetNet':
+                val_corr, val_total = validate_model(model, val_dataloader, DEVICE)
+            else:
+                val_corr, val_total = tensor_validate_model(model, val_dataloader, DEVICE)
+
             logging.info("Epoch: {:2d} | Val acc: {:.3f}".format(e, val_corr/val_total))
 
         if e % 5 == 0 and e > 0 and not(test_dataloader is None):
-            test_corr, test_total = tensor_validate_model(model, test_dataloader, DEVICE)
+            if args.model == 'SmallSetNet':
+                test_corr, test_total = validate_model(model, test_dataloader, DEVICE)
+            else:
+                test_corr, test_total = tensor_validate_model(model, test_dataloader, DEVICE)
             logging.info("Epoch: {:2d} | Test acc: {:.3f}".format(e, test_corr/test_total))
 
 if __name__ == '__main__':
