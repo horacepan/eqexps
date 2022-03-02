@@ -18,7 +18,6 @@ from torch_geometric.utils import to_dense_batch
 
 from jet_utils import check_memory, tensor_validate_model
 from particlenet import ParticleDataset, AwkwardDataset, validate_model, check_memory, nparams
-from eq_models import Eq2to2, Eq2to2Fixed
 from jet_models import *
 from layers import *
 logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(message)s')
@@ -93,6 +92,10 @@ def main(args):
         model = SmallEq2Net(nin=4, nhid=args.nhid, neqhid=args.neqhid, ndechid=args.ndechid, nout=2)
     elif args.model == 'MiniEq2Net':
         model = MiniEq2Net(nin=4, nhid=args.nhid, ndechid=args.ndechid, nout=2)
+    elif args.model == 'MediumEq2Net':
+        model = MediumEq2Net(nin=4, nenchid=args.nenchid, nhid=args.nhid, ndechid=args.ndechid, nout=2)
+    elif args.model == 'SmallEq2NetMini':
+        model = SmallEq2NetMini(nin=4, nhid=args.nhid, neqhid=args.neqhid, ndechid=args.ndechid, nout=2)
 
     #scaler = torch.cuda.amp.GradScaler()
     model = model.to(DEVICE)
@@ -106,7 +109,7 @@ def main(args):
         for batch in tqdm(train_dataloader):
             opt.zero_grad()
             #if args.model == 'SmallSetNet':
-            #    ypred = model.forward(batch)
+            #    ypred = model.forward(batch, DEVICE)
             #    loss = criterion(ypred, torch.LongTensor(batch.y).to(DEVICE))
             #else:
             bx, by = batch
@@ -122,11 +125,11 @@ def main(args):
 
         # do the validation
         if e % args.val_check == 0:
-            val_corr, val_total = tensor_validate_model(model, val_dataloader)
+            val_corr, val_total = tensor_validate_model(model, val_dataloader, DEVICE)
             logging.info("Epoch: {:2d} | Val acc: {:.3f}".format(e, val_corr/val_total))
 
         if e % 5 == 0 and e > 0 and not(test_dataloader is None):
-            test_corr, test_total = tensor_validate_model(model, test_dataloader)
+            test_corr, test_total = tensor_validate_model(model, test_dataloader, DEVICE)
             logging.info("Epoch: {:2d} | Test acc: {:.3f}".format(e, test_corr/test_total))
 
 if __name__ == '__main__':
@@ -138,6 +141,7 @@ if __name__ == '__main__':
     parser.add_argument('--nhid', type=int, default=32)
     parser.add_argument('--neqhid', type=int, default=8)
     parser.add_argument('--ndechid', type=int, default=128)
+    parser.add_argument('--nenchid', type=int, default=32)
     parser.add_argument('--lr', type=float, default=0.0003)
     parser.add_argument('--val_check', type=int, default=2)
     args = parser.parse_args()

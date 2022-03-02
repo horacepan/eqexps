@@ -4,6 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from equivariant_layers_expand import eops_1_to_1, eops_1_to_2, eops_2_to_1, eops_2_to_2, eset_ops_3_to_3, eset_ops_4_to_4, eset_ops_1_to_3
+from equivariant_layers_expand import mini_2_to_2
 
 class Eq1to1(nn.Module):
     def __init__(self, in_dim, out_dim):
@@ -75,6 +76,31 @@ class Eq2to2(nn.Module):
         if n not in self.diag_eyes:
             device = self.diag_bias.device
             diag_eye = torch.eye(n).unsqueeze(0).unsqueeze(0).to(device)
+            self.diag_eyes[n] = diag_eye
+
+        diag_eye = self.diag_eyes[n]
+        diag_bias = diag_eye.multiply(self.diag_bias)
+        output = output + self.bias + diag_bias
+        return output
+
+class MiniEq2to2(nn.Module):
+    def __init__(self, in_dim, out_dim):
+        super(MiniEq2to2, self).__init__()
+        self.basis_dim = 10
+        self.out_dim = out_dim
+        self.in_dim = in_dim
+        self.coefs = nn.Parameter(torch.normal(0, np.sqrt(2. / (in_dim + out_dim + self.basis_dim)), (in_dim, out_dim, self.basis_dim)))
+        self.bias = nn.Parameter(torch.zeros(1, out_dim, 1, 1))
+        self.diag_bias = nn.Parameter(torch.zeros(1, out_dim, 1, 1))
+        self.diag_eyes = {}
+        self.diag_eye = None #torch.eye(n).unsqueeze(0).unsqueeze(0).to(device)
+    def forward(self, inputs):
+        ops = mini_2_to_2(inputs)
+        output = torch.einsum('dsb,ndbij->nsij', self.coefs, ops)
+
+        n = output.shape[-1]
+        if n not in self.diag_eyes:
+            device = self.diag_bias.device
             diag_eye = torch.eye(n).unsqueeze(0).unsqueeze(0).to(device)
             self.diag_eyes[n] = diag_eye
 

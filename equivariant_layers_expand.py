@@ -87,6 +87,35 @@ def eops_2_to_2(inputs, normalize=False):
             ops[i] = torch.divide(op, dim)
     return torch.stack(ops[1:], dim=2)
 
+def mini_2_to_2(inputs, normalize=False):
+    N, D, m, m = inputs.shape
+    dim = inputs.shape[-1]
+
+    diag_part = torch.diagonal(inputs, dim1=-2, dim2=-1) # N x D x m
+    sum_diag_part = diag_part.sum(dim=2, keepdims=True) # N x D x 1
+    sum_rows = inputs.sum(dim=3) # N x D x m
+    sum_cols = inputs.sum(dim=2) # N x D x m
+    sum_all = inputs.sum(dim=(2,3)) # N x D
+
+    ops = [None] * (10)
+    #ops[1]  = torch.diag_embed(diag_part) # N x D x m x m
+    #ops[2]  = torch.diag_embed(sum_diag_part.expand(-1, -1, dim))
+    #ops[3]  = torch.diag_embed(sum_rows)
+    #ops[4]  = torch.diag_embed(sum_cols)
+    #ops[5]  = torch.diag_embed(sum_all.unsqueeze(-1).expand(-1, -1, dim))
+    ops[0]  = sum_cols.unsqueeze(3).expand(-1, -1, -1, dim) / m
+    ops[1]  = sum_rows.unsqueeze(3).expand(-1, -1, -1, dim) / m
+    ops[2]  = sum_cols.unsqueeze(2).expand(-1, -1, dim, -1) / m
+    ops[3]  = sum_rows.unsqueeze(2).expand(-1, -1, dim, -1) /m
+
+    ops[4] = inputs
+    ops[5] = torch.transpose(inputs, 2, 3)
+    ops[6] = diag_part.unsqueeze(3).expand(-1, -1, -1, dim)
+    ops[7] = diag_part.unsqueeze(2).expand(-1, -1, dim, -1)
+    ops[8] = sum_diag_part.unsqueeze(3).expand(-1, -1, dim, dim) / m
+    ops[9] = sum_all.unsqueeze(-1).unsqueeze(-1).expand(-1, -1, dim, dim) / (m*m)
+    return torch.stack(ops, dim=2)
+
 def eset_ops_1_to_3(inputs):
     N, D, m = inputs.shape
     dim = inputs.shape[-1]
