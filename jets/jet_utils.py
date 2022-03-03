@@ -22,7 +22,7 @@ def tensor_validate_model(model, loader, device='cpu'):
     total = 0
 
     with torch.no_grad():
-        for batch in tqdm(loader):
+        for batch in (loader):
             bx, by = batch[0].to(device), batch[1].to(device)
             ypred = model.forward(bx)
             ncorr += (ypred.max(dim=1)[1] == by).sum()
@@ -35,7 +35,7 @@ def validate_model(model, loader, device='cpu'):
     total = 0
 
     with torch.no_grad():
-        for batch in tqdm(loader):
+        for batch in (loader):
             batch = batch.to(device)
             ypred = model.forward(batch)
             # get acc of the model

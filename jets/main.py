@@ -4,8 +4,7 @@ sys.path.append('../')
 import pdb
 import time
 import os
-import logging
-from tqdm import tqdm
+#from tqdm import tqdm
 
 import argparse
 import numpy as np
@@ -16,11 +15,11 @@ import torch_geometric
 from torch_geometric.data import DataLoader
 from torch_geometric.utils import to_dense_batch
 
-from jet_utils import check_memory, tensor_validate_model
-from particlenet import ParticleDataset, AwkwardDataset, validate_model, check_memory, nparams
+from jet_utils import check_memory, tensor_validate_model, validate_model, nparams
+from particlenet import ParticleDataset, AwkwardDataset, check_memory
 from jet_models import *
 from layers import *
-logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(message)s')
+from utils import get_logger, setup_experiment_log, save_checkpoint, load_checkpoint
 
 PROJECT_DIR = './'
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -32,7 +31,20 @@ def load_tensor_data(xfn, yfn, loader_kwargs):
     return dataloader
 
 def load_small_tensor_loaders(loader_kwargs):
-    pass
+    loc_fmt = './data/converted100/{}.pt'
+    fs = ['train', 'val', 'test']
+    pt_fns = [loc_fmt.format(t) for t in fs]
+    tensor_loaders = []
+
+    for f in pt_fns:
+        d = torch.load(f)
+        x = d['x']
+        y = d['y']
+        ds = torch.utils.data.TensorDataset(x, y)
+        dl = torch.utils.data.DataLoader(ds, **loader_kwargs)
+        tensor_loaders.append(dl)
+
+    return tensor_loaders
 
 def load_tensor_loaders(loader_kwargs):
     xs_fmt = './data/convertedbig/{}_stack.pt'
@@ -48,47 +60,47 @@ def load_graph_dataset(fn, particle_fn, loader_kwargs):
     loader = DataLoader(dataset, **loader_kwargs)
     return loader
 
-def load_graph_loaders(loader_kwargs):
-    train_fn = './data/convertedbig/train_file_0.awkd'
-    val_fn = './data/convertedbig/val_file_0.awkd'
-    test_fn = './data/convertedbig/test_file_0.awkd'
+def load_graph_loaders(loader_kwargs, test=False):
+    if test:
+        _dir = 'converted100'
+        pn_suffix = '100'
+    else:
+        _dir = 'convertedbig'
+        pn_suffix = 'big'
 
-    train_pn = './data/graph/trainbig'
-    val_pn = './data/graph/valbig'
-    test_pn = './data/graph/testbig'
+    train_fn = f'./data/{_dir}/train_file_0.awkd'
+    val_fn = f'./data/{_dir}/val_file_0.awkd'
+    test_fn = f'./data/{_dir}/test_file_0.awkd'
+
+    train_pn = './data/graph/train{pn_suffix}'
+    val_pn = './data/graph/val{pn_suffix}'
+    test_pn = './data/graph/test{pn_suffix}'
     fns = [train_fn, val_fn, test_fn]
     pns = [train_pn, val_pn, test_pn]
     return [load_graph_dataset(f, p, loader_kwargs) for f, p in zip(fns, pns)]
 
 def main(args):
-    train_fn = './data/convertedbig/train_file_0.awkd'
-    val_fn = './data/convertedbig/val_file_0.awkd'
-    test_fn = './data/convertedbig/test_file_0.awkd'
     torch.manual_seed(args.seed)
+    log_fn, swr = setup_experiment_log(args, args.savedir, args.exp_name, save=args.save)
+    log = get_logger(log_fn)
+    log.info('Starting experiment! Saving in: {}'.format(log_fn))
+    log.info('Command line:')
+    log.info('python ' + ' '.join(sys.argv))
 
-    logging.info("Starting to load dataloaders")
+    log.info("Starting to load dataloaders")
     loader_kwargs = {'batch_size': args.batch_size, 'shuffle': True, 'num_workers': args.num_workers}
     if args.model == 'SmallSetNet':
-        train_dataloader, val_dataloader, test_dataloader = load_graph_loaders(loader_kwargs)
+        train_dataloader, val_dataloader, test_dataloader = load_graph_loaders(loader_kwargs, test=args.test)
     else:
-        train_dataloader, val_dataloader, test_dataloader = load_tensor_loaders(loader_kwargs)
-    logging.info("Done loading dataloaders")
-    logging.info("Memory usage: {:.2f}mb".format(check_memory(False)))
-    #logging.info("Starting to load big data ...")
-    #train_awkward = AwkwardDataset(train_fn, data_format='channel_last')
-    #val_awkward = AwkwardDataset(val_fn, data_format='channel_last')
-    #test_awkward = AwkwardDataset(test_fn, data_format='channel_last')
-    #logging.info("Done loading awk datasets! | Memory used: {:.2f}mb".format(check_memory(False)))
+        if not args.test:
+            train_dataloader, val_dataloader, test_dataloader = load_tensor_loaders(loader_kwargs)
+        else:
+            log.info("Using the smaller data")
+            train_dataloader, val_dataloader, test_dataloader = load_small_tensor_loaders(loader_kwargs)
 
-    #train_dataset = ParticleDataset(train_awkward, os.path.join(PROJECT_DIR, 'data', 'graph', 'trainbig'))
-    #val_dataset = ParticleDataset(val_awkward, os.path.join(PROJECT_DIR, 'data', 'graph', 'valbig'))
-    #test_dataset = ParticleDataset(test_awkward, os.path.join(PROJECT_DIR, 'data', 'graph', 'testbig'))
-    #logging.info("Done loading particle datasets! | Memory used: {:.2f}mb".format(check_memory(False)))
-
-    #train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
-    #val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
-    #test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_workers)
-    #logging.info("Done making dataloaders! | Memory used: {:.2f}mb".format(check_memory(False)))
+    log.info("Done loading dataloaders")
+    log.info("Memory usage: {:.2f}mb".format(check_memory(False)))
+    log.info("Args: {}".format(args))
 
     if args.model == 'SmallSetNet':
         model = SmallSetNet(nin=4, nhid=args.nhid, nout=2)
@@ -109,13 +121,20 @@ def main(args):
     model = model.to(DEVICE)
     criterion = nn.CrossEntropyLoss()
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
-    logging.info(f"Running with num workers: {args.num_workers}, batch size: {args.batch_size}")
-    logging.info("Memory used: {:.2f}mb | Num params: {}".format(check_memory(False), nparams(model)))
-    logging.info("Model name: {}".format(model.__class__))
+    savedir = os.path.join(args.savedir, args.exp_name)
+    checkpoint_fn = os.path.join(savedir, 'checkpoint.pth')
+    if args.lr_decay:
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, 'min', factor=0.8, patience=args.patience)
+    else:
+        scheduler = None
 
-    for e in range(100):
-        for batch in tqdm(train_dataloader):
-            opt.zero_grad()
+    model, opt, start_epoch, _ = load_checkpoint(model, opt, log, checkpoint_fn, scheduler)
+    log.info(f"Running with num workers: {args.num_workers}, batch size: {args.batch_size}")
+    log.info("Memory used: {:.2f}mb | Num params: {}".format(check_memory(False), nparams(model)))
+    log.info("Model name: {}".format(model.__class__))
+
+    for e in range(start_epoch, start_epoch + args.epochs + 1):
+        for batch in (train_dataloader):
             if args.model == 'SmallSetNet':
                 batch = batch.to(DEVICE)
                 ypred = model.forward(batch)
@@ -128,29 +147,37 @@ def main(args):
 
             loss.backward()
             opt.step()
+            opt.zero_grad()
             #scaler.scale(loss).backward()
             #scaler.step(opt)
             #scaler.update()
 
-        # do the validation
         if e % args.val_check == 0:
             if args.model == 'SmallSetNet':
                 val_corr, val_total = validate_model(model, val_dataloader, DEVICE)
             else:
                 val_corr, val_total = tensor_validate_model(model, val_dataloader, DEVICE)
 
-            logging.info("Epoch: {:2d} | Val acc: {:.3f}".format(e, val_corr/val_total))
+            val_acc = val_corr/val_total
+            log.info("Epoch: {:2d} |  Val acc: {:.4f}".format(e, val_corr/val_total))
+
+            if args.save:
+                save_checkpoint(e, model, opt, checkpoint_fn)
+            if scheduler:
+                log.info("Stepping scheduler")
+                scheduler.step(val_acc)
 
         if e % 5 == 0 and e > 0 and not(test_dataloader is None):
             if args.model == 'SmallSetNet':
                 test_corr, test_total = validate_model(model, test_dataloader, DEVICE)
             else:
                 test_corr, test_total = tensor_validate_model(model, test_dataloader, DEVICE)
-            logging.info("Epoch: {:2d} | Test acc: {:.3f}".format(e, test_corr/test_total))
+            log.info("Epoch: {:2d} | Test acc: {:.4f}".format(e, test_corr/test_total))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=1024)
     parser.add_argument('--model', type=str, default='SmallSetNet')
     parser.add_argument('--num_workers', type=int, default=0)
@@ -159,6 +186,14 @@ if __name__ == '__main__':
     parser.add_argument('--ndechid', type=int, default=128)
     parser.add_argument('--nenchid', type=int, default=32)
     parser.add_argument('--lr', type=float, default=0.0003)
-    parser.add_argument('--val_check', type=int, default=2)
+    parser.add_argument('--val_check', type=int, default=1)
+
+    parser.add_argument('--savedir', type=str, default='./results/jets')
+    parser.add_argument('--exp_name', type=str, default='test')
+    parser.add_argument('--save', action='store_true', default=False)
+    parser.add_argument('--test', action='store_true', default=False)
+    parser.add_argument('--lr_decay', action='store_true', default=False)
+    parser.add_argument('--patience', type=int, default=3)
+
     args = parser.parse_args()
     main(args)

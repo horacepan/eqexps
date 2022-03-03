@@ -88,7 +88,7 @@ def setup_experiment_log(args, savedir='./results/', exp_name='test', save=False
 
     return logfile, swr
 
-def save_checkpoint(epoch, model, optimizer, fname):
+def save_checkpoint(epoch, model, optimizer, fname, scheduler=None):
     '''
     epoch: int, epoch number
     model: nn.Module, the model to save
@@ -102,9 +102,11 @@ def save_checkpoint(epoch, model, optimizer, fname):
         'state_dict': model.state_dict(),
         'optimizer': optimizer.state_dict()
     }
+    if scheduler:
+        state['scheduler'] = scheduler.state_dict()
     torch.save(state, fname)
 
-def load_checkpoint(model, optimizer, log, fname):
+def load_checkpoint(model, optimizer, log, fname, scheduler=None):
     '''
     model: nn.Module, the model to reload
     optimizer: torch.optim optimizer, the optizer to reload
@@ -124,6 +126,9 @@ def load_checkpoint(model, optimizer, log, fname):
         optimizer.load_state_dict(checkpoint['optimizer'])
         log.info("=> loaded checkpoint '{}' (epoch {})"
                   .format(fname, checkpoint['epoch']))
+
+        if scheduler and 'scheduler' in checkpoint:
+            scheduler.load_state_dict(checkpoint['scheduler'])
         success = True
     else:
         log.info("=> no checkpoint found at '{}'".format(fname))

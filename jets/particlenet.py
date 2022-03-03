@@ -18,7 +18,7 @@ import torch.nn as nn
 import torch_geometric
 from jet_utils import check_memory, nparams, validate_model
 
-logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(message)s')
+#logging.basicConfig(level=logging.INFO, format='[%(asctime)s] %(levelname)s: %(message)s')
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 PROJECT_DIR = './'
 
@@ -113,10 +113,10 @@ def convert(source, destdir, basename, step=None, limit=None):
     :param limit: int, Number of rows to read.
     """
     df = pd.read_hdf(source, key='table')
-    logging.info('Total events: %s' % str(df.shape[0]))
+    #logging.info('Total events: %s' % str(df.shape[0]))
     if limit is not None:
         df = df.iloc[0:limit]
-        logging.info('Restricting to the first %s events:' % str(df.shape[0]))
+        #logging.info('Restricting to the first %s events:' % str(df.shape[0]))
     if step is None:
         step = df.shape[0]
 
@@ -126,9 +126,9 @@ def convert(source, destdir, basename, step=None, limit=None):
         if not os.path.exists(destdir):
             os.makedirs(destdir)
         output = os.path.join(destdir, '%s_%d.awkd'%(basename, idx))
-        logging.info(output)
+        #logging.info(output)
         if os.path.exists(output):
-            logging.warning('... file already exist: continue ...')
+            #logging.warning('... file already exist: continue ...')
             continue
         v = _transform(df, start=start, stop=start+step)
         awkward.save(output, v, mode='x')
@@ -166,7 +166,7 @@ class AwkwardDataset:
         self._load()
 
     def _load(self):
-        logging.info('Start loading file %s' % self.filepath)
+        #logging.info('Start loading file %s' % self.filepath)
         counts = None
         with awkward.load(self.filepath) as a:
             # Load output labels from the awkward array
@@ -183,7 +183,7 @@ class AwkwardDataset:
                         assert np.array_equal(counts, a[col].counts)
                     arrs.append(pad_array(a[col], self.pad_len))
                 self._values[k] = np.stack(arrs, axis=self.stack_axis)
-        logging.info('Finished loading file %s' % self.filepath)
+        #logging.info('Finished loading file %s' % self.filepath)
 
     def __len__(self):
         return len(self._label)
@@ -337,10 +337,10 @@ def process_data():
     convert('original/test.h5', destdir='converted', basename='test_file')
 
 def make_model(settings):
-    logging.info("Starting make model")
+    #logging.info("Starting make model")
     model = ParticleNet(settings)
-    logging.info("made model, sending to device: {}".format(DEVICE))
-    logging.info("model params: {}".format(nparams(model)))
+    #logging.info("made model, sending to device: {}".format(DEVICE))
+    #logging.info("model params: {}".format(nparams(model)))
     model = model.to(DEVICE)
     return model
 
@@ -363,25 +363,26 @@ def main():
     settings = get_default_settings()
     model = make_model(settings)
     check_memory()
-    logging.info("Made the model, now moving on to the data loaders")
+    #logging.info("Made the model, now moving on to the data loaders")
 
     train_fn = './data/converted/train_file_0.awkd'
+    test_fn = './data/converted/test_file_0.awkd'
     val_fn = './data/converted/val_file_0.awkd'
     train_awkward = AwkwardDataset(train_fn, data_format='channel_last')
-    logging.info("done loading dataset | {}".format(len(train_awkward)))
+    #logging.info("done loading dataset | {}".format(len(train_awkward)))
     check_memory()
     val_awkward = AwkwardDataset(val_fn, data_format='channel_last')
-    logging.info("done loading dataset | {}".format(len(val_awkward)))
+    #logging.info("done loading dataset | {}".format(len(val_awkward)))
     check_memory()
 
     train_dataset = ParticleDataset(train_awkward, os.path.join(PROJECT_DIR, 'data', 'graph', 'train'))
     train_dataloader = torch_geometric.data.DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=1)
-    logging.info("num workers: {}".format(train_dataloader.num_workers))
+    #logging.info("num workers: {}".format(train_dataloader.num_workers))
 
     val_dataset = ParticleDataset(val_awkward, os.path.join(PROJECT_DIR, 'data', 'graph', 'val'))
     val_dataloader = torch_geometric.data.DataLoader(val_dataset, batch_size=128, shuffle=True)
-    logging.info("Len train_dataset: {}, val dataset: {}".format(len(train_dataset), len(val_dataset)))
-    logging.info("Memory used: {}mb".format(check_memory(verbose=False)))
+    #logging.info("Len train_dataset: {}, val dataset: {}".format(len(train_dataset), len(val_dataset)))
+    #logging.info("Memory used: {}mb".format(check_memory(verbose=False)))
 
     args = argparse.Namespace()
     args.lr = 0.001
