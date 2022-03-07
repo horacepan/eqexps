@@ -14,8 +14,9 @@ import torch.nn.functional as F
 import torch_geometric
 from torch_geometric.data import DataLoader
 from torch_geometric.utils import to_dense_batch
+from torchmetrics import AUROC, Accuracy
 
-from jet_utils import check_memory, tensor_validate_model, validate_model, nparams
+from jet_utils import check_memory, tensor_validate_model, validate_model, nparams, init_weights
 from particlenet import ParticleDataset, AwkwardDataset, check_memory
 from jet_models import *
 from layers import *
@@ -116,6 +117,11 @@ def main(args):
         model = TensorNet(nin=4, nhid=args.nhid, ndechid=args.ndechid, nout=2)
     elif args.model == 'TensorMLPNet':
         model = TensorMLPNet(nin=4, nhid=args.nhid, ndechid=args.ndechid, nout=2)
+    elif args.model == 'ResSetNet':
+        model = ResSetNet(nin=4, nhid=args.nhid, nout=2)
+        init_weights(model)
+    elif args.model == 'Eq2NetMiniRes':
+        model = Eq2NetMiniRes(nin=4, nhid=args.nhid, ndechid=args.ndechid, nout=2)
 
     #scaler = torch.cuda.amp.GradScaler()
     model = model.to(DEVICE)
@@ -123,15 +129,22 @@ def main(args):
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
     savedir = os.path.join(args.savedir, args.exp_name)
     checkpoint_fn = os.path.join(savedir, 'checkpoint.pth')
+    best_fn = os.path.join(savedir, 'best.pth')
     if args.lr_decay:
         scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, 'min', factor=0.8, patience=args.patience)
     else:
         scheduler = None
 
     model, opt, start_epoch, _ = load_checkpoint(model, opt, log, checkpoint_fn, scheduler)
+    best_acc = 0
     log.info(f"Running with num workers: {args.num_workers}, batch size: {args.batch_size}")
     log.info("Memory used: {:.2f}mb | Num params: {}".format(check_memory(False), nparams(model)))
     log.info("Model name: {}".format(model.__class__))
+
+    val_acc = Accuracy().to(DEVICE)
+    val_auroc = AUROC(num_classes=2).to(DEVICE)
+    test_acc = Accuracy().to(DEVICE)
+    test_auroc = AUROC(num_classes=2).to(DEVICE)
 
     for e in range(start_epoch, start_epoch + args.epochs + 1):
         for batch in (train_dataloader):
@@ -154,25 +167,35 @@ def main(args):
 
         if e % args.val_check == 0:
             if args.model == 'SmallSetNet':
-                val_corr, val_total = validate_model(model, val_dataloader, DEVICE)
+                val_corr, val_total = validate_model(val_acc, val_auroc, model, val_dataloader, DEVICE)
             else:
-                val_corr, val_total = tensor_validate_model(model, val_dataloader, DEVICE)
+                val_corr, val_total = tensor_validate_model(val_acc, val_auroc, model, val_dataloader, DEVICE)
 
-            val_acc = val_corr/val_total
-            log.info("Epoch: {:2d} |  Val acc: {:.4f}".format(e, val_corr/val_total))
+            _val_acc = val_acc.compute().item()
+            extra = ""
+            if _val_acc > best_acc and not args.test:
+                save_checkpoint(e, model, opt, best_fn)
+                best_acc = _val_acc
+            elif e > 5 and _val_acc > 0.9 and _val_acc < best_acc - 0.5:
+                old_checkpt = load_checkpoint(model, opt, log, checkpoint_fn, scheduler)
+                extra = "reloaded old checkpoint from epoch {}".format(old_checkpoint[2])
+            log.info("Epoch: {:2d} |  Val acc: {:.4f} | AUROC: {:.4f} | Best val seen: {:.4f} | {}".format(e, _val_acc, val_auroc.compute().item(), best_acc, extra))
 
-            if args.save:
+            if args.save and not args.test:
                 save_checkpoint(e, model, opt, checkpoint_fn)
             if scheduler:
-                log.info("Stepping scheduler")
-                scheduler.step(val_acc)
+                scheduler.step(_val_acc)
+            val_acc.reset()
+            val_auroc.reset()
 
         if e % 5 == 0 and e > 0 and not(test_dataloader is None):
             if args.model == 'SmallSetNet':
-                test_corr, test_total = validate_model(model, test_dataloader, DEVICE)
+                validate_model(test_acc, test_auroc, model, test_dataloader, DEVICE)
             else:
-                test_corr, test_total = tensor_validate_model(model, test_dataloader, DEVICE)
-            log.info("Epoch: {:2d} | Test acc: {:.4f}".format(e, test_corr/test_total))
+                tensor_validate_model(test_acc, test_auroc, model, test_dataloader, DEVICE)
+            log.info("Epoch: {:2d} | Test acc: {:.4f} | AUROC: {:.4f}".format(e, test_acc.compute().item(), test_auroc.compute().item()))
+            test_acc.reset()
+            test_auroc.reset()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

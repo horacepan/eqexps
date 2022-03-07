@@ -169,6 +169,41 @@ class SmallEq2NetMini(nn.Module):
         x = self.dec(x)
         return x
 
+class Eq2NetMiniRes(nn.Module):
+    def __init__(self, nin, nhid, ndechid, nout, **kwargs):
+        super(Eq2NetMiniRes, self).__init__()
+        self.enc = nn.Sequential(
+            nn.Linear(nin, nhid),
+            nn.ReLU(),
+            nn.Linear(nhid, nhid),
+            nn.ReLU(),
+            nn.Linear(nhid, nhid)
+        )
+        self.eq_fc1 = nn.Linear(nhid, nhid)
+        self.eq1 = MiniEq2to2(nhid, nhid)
+        self.dec = nn.Sequential(
+            nn.Linear(nhid, ndechid),
+            nn.ReLU(),
+            nn.Linear(ndechid, ndechid),
+            nn.ReLU(),
+            nn.Linear(ndechid, nout)
+        )
+
+    def forward(self, x, device='cpu'):
+        x = self.enc(x)
+        x = torch.einsum('bid,bjd->bijd', x, x)
+
+        # b n n d
+        x = self.eq_fc1(x)
+        x = x.permute(0, 3, 1, 2)
+        res = x
+        x = self.eq1(x)
+        x = F.relu(x)
+        x = x + res
+        x = x.mean(dim=(-1, -2))
+        x = self.dec(x)
+        return x
+
 class TensorNet(nn.Module):
     def __init__(self, nin, nhid, ndechid, nout):
         super(TensorNet, self).__init__()
@@ -226,6 +261,40 @@ class TensorMLPNet(nn.Module):
         x = self.tens_dec(x)
         x = torch.mean(x, dim=(1, 2))
         x = F.relu(x)
+        x = self.dec(x)
+        return x
+
+class ResMLPBlock(nn.Module):
+    def __init__(self, nin, nhid):
+        super(ResMLPBlock, self).__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(nin, nhid),
+            nn.ReLU(),
+            nn.Linear(nhid, nhid),
+            nn.ReLU(),
+        )
+
+    def forward(self, x):
+        res = x
+        x = self.mlp(x)
+        return x + res
+
+class ResSetNet(nn.Module):
+    def __init__(self, nin, nhid, nout):
+        super(ResSetNet, self).__init__()
+        self.enc = nn.Linear(nin, nhid)
+        self.res1 = ResMLPBlock(nhid, nhid)
+        self.res2 = ResMLPBlock(nhid, nhid)
+        self.res3 = ResMLPBlock(nhid, nhid)
+        self.dec = nn.Linear(nhid, nout)
+
+    def forward(self, x):
+        x = self.enc(x)
+        x = F.relu(x)
+        x = self.res1(x)
+        x = self.res2(x)
+        x = torch.sum(x, dim=1)
+        x = self.res3(x)
         x = self.dec(x)
         return x
 # python smallnet.py --model SmallEq2Net --nhid 32 --neqhid 8 --batch_size 512 --lr 0.001

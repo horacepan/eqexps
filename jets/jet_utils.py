@@ -1,7 +1,9 @@
+import pdb
 import os
 import psutil
-import torch
 from tqdm import tqdm
+import numpy as np
+import torch
 
 def check_memory(verbose=True):
     # return the memory usage in MB
@@ -17,20 +19,17 @@ def nparams(model):
         tot += p.numel()
     return tot
 
-def tensor_validate_model(model, loader, device='cpu'):
-    ncorr = 0
-    total = 0
-
+def tensor_validate_model(acc, auroc, model, loader, device='cpu'):
     with torch.no_grad():
         for batch in (loader):
             bx, by = batch[0].to(device), batch[1].to(device)
             ypred = model.forward(bx)
-            ncorr += (ypred.max(dim=1)[1] == by).sum()
-            total += len(batch[1])
+            acc.update(ypred, by)
+            auroc.update(ypred.softmax(dim=1), by)
 
-    return ncorr, total
+    return acc, auroc
 
-def validate_model(model, loader, device='cpu'):
+def validate_model(acc, auroc, model, loader, device='cpu'):
     ncorr = 0
     total = 0
 
@@ -40,9 +39,17 @@ def validate_model(model, loader, device='cpu'):
             ypred = model.forward(batch)
             # get acc of the model
             y = torch.LongTensor(batch.y).to(device)
-            ncorr += (ypred.max(dim=1)[1] == y).sum()
-            total += len(batch.y)
+            acc.update(ypred, y)
+            auroc.update(ypred.softmax(dim=1), y)
 
-    return ncorr, total
+    return acc, auroc
 
-
+def init_weights(net):
+    for p in net.parameters():
+        if len(p.shape) == 1:
+            p.data.zero_()
+        else:
+            nin = p.shape[0]
+            nout = p.shape[1]
+            std = 2 / (nin + nout)
+            p.data.normal_(0, np.sqrt(2 / (nin + nout)))
